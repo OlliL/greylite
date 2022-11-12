@@ -1,0 +1,293 @@
+.Dd Nov 11, 2007
+.Dt GREYLITE 8 SMM
+.\"
+.Sh NAME
+.Nm greylite
+.Nd transparent greylisting module for mailservers
+.\"
+.\"
+.Sh SYNOPSIS
+.Nm greylite
+.Op Ar smtpd-child
+.Sh DESCRIPTION
+.Nm
+is an implementation of a modified greylisting technology for fighting SPAM on
+mailservers. It combines natively with qmail and works as a proxy for any SMTP
+server.
+.Pp
+The prevalent reference for
+.Nm
+is the web page at
+.Ar http://mij.oltrelinux.com/net/greylite/ ;
+this man page is a shorter reference.
+.Pp
+This man page explains how to setup and use
+.Nm ,
+not how to install it, nor its internals, nor its distinguishable features.
+.Pp
+For setup instructions, see
+.Nm SETUP
+below. For a quick reference on control variables, see
+.Nm CONTROLS
+below. For an outline of the algorithm with which greylist modified the
+delivery attempts, see
+.Nm ALGORITHM
+below.
+.\"
+.\"
+.Sh SETUP
+Both when running as a reverse SMTP proxy or a UCSPI wrapper,
+.Nm
+is run under
+.Ar tcpserver
+(see http://cr.yp.to/ucspi-tcp/tcpserver.html).
+.Pp
+The database file must be created first in either case, with the file
+greydb.sql from the greylite's package (installing from package managers could
+already provide this database):
+.Bd -literal -offset indent
+mkdir -p /var/db/greylite
+sqlite3 -init greydb.sql /var/db/greylite/greylite.db
+.Ed
+.Pp
+Thereafter greylite can immediately be run from a tcpserver instance, either
+as proxy or as wrapper.
+.Pp
+When run as a reverse SMTP proxy, greylite stays in the middle of the
+connection between the client and the upstream server, supervises the envelope
+session transparently and decides how to act depending on its modified
+greylisting algorithm. In this case, the
+.Ar ucspi2socket
+module is used to communicate with the upstream server:
+.Bd -literal -offset indent
+/usr/local/bin/tcpserver -v -R -l `uname -n` BINDADDR BINDPORT \\
+    env GREYLIST="" /usr/local/bin/greylite \\
+    /usr/local/bin/ucspi2socket SRVADDR [SRVPORT]
+.Ed
+replace BINDADDR and BINDPORT with the IP address and port that greylite must
+listen; replace SRVADDR (and SRVPORT if you need it) with the IP address and
+port of the upstream "true" SMTP server to defend.
+.Pp
+When run as a UCSPI (notably, qmail) wrapper,
+.Nm
+is just plugged into the top of the tcpserver chain preceding qmail-smtpd. A
+typical chain (as taken from
+.Ar http://lifewithqmail.org/lwq.html#supervise-tree )
+modified to enable greylite looks like:
+.Bd -literal -offset indent
+/usr/local/bin/tcpserver -v -R -l "$LOCAL" \\
+    -x /etc/tcp.smtp.cdb -c "$MAXSMTPD" \\
+    -u "$QMAILDUID" -g "$NOFILESGID" 0 smtp \\
+    /usr/local/bin/greylite /var/qmail/bin/qmail-smtpd 2>&1
+.Ed
+where the greylite executable is evidently inserted without further
+complications. 
+.Pp
+Unless the 
+.Ar GREYLIST
+environment variable in detected by greylite, it passes transparently to the
+upstream server. This variable - as well as other control variables, possibly -
+can be passed with the tcpserver's control access feature (-x file option).
+Based on a rule file, it can both allow/deny connections and specify
+environment variables per-source-address. A rule file allowing everyone in and
+passing the GREYLIST variable looks like:
+.Bd -literal -offset indent
+:allow,GREYLIST=""
+.Ed
+See
+.Ar http://cr.yp.to/ucspi-tcp/tcpserver.html
+and
+.Ar http://cr.yp.to/ucspi-tcp/tcprules.html
+for more information.
+.Pp
+If greylite runs as unprivileged user (-u and/or -g arguments to tcpserver),
+make sure that the directory holding the .db file is writable by such user.
+Using custom paths or filenames for this database is also possible (see
+.Nm CONTROLS
+below).
+.\"
+.\"
+.Sh CONTROLS
+.Nm
+is controlled exclusively by environment variables. No command line options
+are required nor allowed.
+.Pp
+.Nm
+recognizes the following environment variables:
+.Bl -tag -compact
+.It GREYLIST
+if not set, greylisting is disabled and control is passed immediately to the
+smtpd transparently. If set, greylisting mediation is enabled. Besides
+existence, the value assigned to this variable is completely ignored.
+.It DBFILE
+if set, its value indicates the full path to the database file to use. If not
+set, the default filename
+.Pa /var/db/greylite/greylite.db
+is used.
+.It LOGTHRESHOLD
+if set to an integer between 0 (LOG_EMERG) and 7 (LOG_DEBUG), log messages
+with priority strictly lower than this value are not reported. Otherwise, the
+default threshold is 3 (LOG_ERR).
+.It LOGPID
+if set, every log message will be prepended by the PID of the process writing
+it.
+.It SUSPICION
+if set, its value indicates the full path to the suspicion file. See
+.Nm SUSPICION
+below.
+.It GEOIPDB_FILE
+when using suspicion with GeoIP rules, the value of this variable is the full
+path and filename of the GeoIP database. If not set, greylite will look for
+.Ar /usr/local/share/GeoIP/GeoIP.dat .
+.It GREETDELAY
+when set, greylite opens the connection immediately but introduces a small
+delay (by default 6 seconds) before actually responding data to the client. If
+its value is a positive integer, it represents a custom delay to wait, in
+millisecs.
+.El
+.\"
+.\"
+.Sh SUSPICION
+Greylisting has a tremendous effectiveness and efficiency but can be easily
+worked around, for example issuing the delivery twice (or thrice) in case of
+temporary error.
+.Pp
+However, it can be frequently inferred with some accuracy that a client is
+a spammer by a bunch of factors. For example, if the address' hostname
+contains "ppp", or "dynamic" it is likely to be spammer; if it attempts
+twice immediately, if it is located in countries like Russia or China or
+Malaysia etc, if it connects and pushes data without waiting the server
+responses et cetera, these are all distinguishable properties of spammers.
+.Pp
+"Suspicion" is a technique used by greylite to avoid the workarounds that
+spammers use against greylisting. It is a list of rules to determine if the
+client has to be required multiple delivery attempts (instead of the usual
+double attempt): the more suspicious is a client, the more times it might be
+temporarily rejected. Also, clients resulting suspicious are not whitelisted
+even if they pass the greylisting challenge.
+.Pp
+A complete reference for greylite's suspicion is available in
+.Ar http://mij.oltrelinux.com/net/greylite/suspicion.html .
+.Pp
+This suspicion policy is contained in a
+.Ar suspicion file .
+In this text file, each line has format "number letter rule" (or "number
+letter ! rule"), where:
+.Bl -tag -compact -offset indent
+.It number
+is a positive integer value defining the number of delivery attempts to
+require for the message if the rule matches
+.It letter
+is a lowercase letter specifying the type of the rule following (see below)
+.It !
+if present, inverts (negates) the specification of the rule -- that is,
+matches when the rule does not and vice-versa
+.It rule
+is the rule specification
+.El
+Lines whose first character is '#' are ignored. The first line whose rule
+matches decides the number of attempts to require.
+.Pp
+The following kinds of rules are currently supported:
+.Bl -tag -compact -offset indent
+.It r
+Reverse lookup. The rule is an extended regular expression (see re_format(7))
+to check the PTR domain of the client address. If the regex matches the PTR
+domain, the rule is applied. This kind of rule requires tcpserver to be run
+with the
+.Ar -r
+command line option so that the remote host name is available to greylite.
+.It v
+environment Variable. The rule is a space-separated list of one or more
+environment variables. If any of these variables is present in the process'
+environment, the rule is applied. If the value of the variable is a positive
+integer, that will be used as number of attempts instead of the number in
+the rule.
+.It e
+Envelope analysis. The rule is a list of one or more patterns to match against
+parts of the envelope information. Patterns are expressed as regular
+expressions (see re_format(7)) prefixed by "r:", "s:" or "h:" for matching
+respectively the envelope recipient, the envelope sender or the hostname sent
+in the HELO/EHLO command.
+.It g
+GeoIP. The rule is a space-separated list of one or more country codes, see
+.Ar http://www.maxmind.com/app/iso3166 .
+If the client appears to come from a zone in this list, the rule is applied.
+This kind requires greylite to be compiled with "-DWITH_GEOIP", and that the
+GeoIP library and database are present in the system (see GEOIPDB_FILE in
+.Nm CONTROLS
+above).
+.It b
+client Behaviour. If the client features certain behaviours, the rule is
+applied. Behaviours are specified as list of one or more keywords:
+"greetdelay" (a delay is inserted before passing data when the connection is
+open. Mass mailers may give up and disconnect, or send data blindly before
+expecting the server's greeting. In the second case the rule matches.);
+"retryinterval" (the client may be retrying deliveries of the message with an
+excessive frequency that is not proper of legitimate servers.); "commanderrors"
+(the client issued a command that the server did not accept during the command
+session. Use with caution)
+.El
+Lines with an unknown kind are ignored. Lines with an incorrect format are
+discarded.
+.Pp
+This is an example:
+.Bd -literal
+# unprotecteddomain.com is not protected with greylisting, and GMX is
+# trusted because of SPF's "-all"
+0 e r:@unprotecteddomain.com$ s:@gmx.(de|net)$
+# who fails the greetdelay trap or retries blindly is rejected to the infinite
+100 b greetdelay retryinterval
+# dnsblenv sets the BLACKLISTED variable when the client is on a RBL
+6 v BLACKLISTED
+# clients outside this zone are suspicious (this is very case-specific)
+3 g ! AT BE CH DE ES EU FI FR GB IT MC NO SM VA
+# clients whose PTR name contains "dynamic" stuff are suspicious
+3 r (^|[^a-z])(a?dsl|dyn(amic)?(ip)?|dial(in|up)?|ppp|customer|user|host|home)([^a-z]|\.?$)
+2 r (([0-9]{1,3}[-.]){3})[0-9]{1,3}
+.Ed
+.\"
+.\"
+.Sh MODULES
+Greylite can be interfaced with more modules. Pre-modules are run before
+greylite and can perform custom checks on the client and set environment
+variables to which greylite can be made sensible for suspicion. Post-modules
+are run after greylite and can make greylite communicate with backend servers.
+Every module must conform to the UCSPI interface to be compatible with the
+rest of the "service chain".
+.Pp
+Two modules are included in the distribution: dnsblenv and ucspi2socket.
+.Pp
+.Ar dnsblenv
+is a pre-module. It queries a list of RBL/DNSBL lists (space-separated into
+the DNSBL environment variable) for the client's address. If it is found in
+any of them, it sets the BLACKLISTED environment variable and runs its
+argument.
+.Pp
+.Ar ucspi2socket
+is a post-module. It is run conforming to the UCSPI interface for interfacing
+with an upstream TCP server.
+.Pp
+This is an example combining both modules: dnsblenv polling lists
+zen.spamhaus.org and dnsbl.sorbs.net; ucspi2socket connecting to the upstream
+server 1.2.3.4 on port 43210:
+.Bd -literal -offset indent
+/usr/local/bin/tcpserver -v -R -l `uname -n` BINDADDR BINDPORT \\\\
+    env GREYLIST="" DNSBL="zen.spamhaus.org dnsbl.sorbs.net" \\\\
+    /usr/local/bin/dnsblenv /usr/local/bin/greylite \\\\
+    /usr/local/bin/ucspi2socket 1.2.3.4 43210
+.Ed
+.\"
+.\"
+.Sh ALGORITHM
+The original greylisting algorithm is described in
+.Ar http://projects.puremagic.com/greylisting/
+and the modified algorithm used by
+.Nm
+is outlined below and detailed in
+.Ar http://mij.oltrelinux.com/net/greylite/ .
+.\"
+.\"
+.Sh SEE ALSO
+.Xr tcpserver 1 ,
+.Xr qmail-smtpd 8

@@ -1,0 +1,45 @@
+* 2.3   Mar 2008
+    - stricter control on compliance of commands from the clients
+    - raise sqlite tryout, lower log priority for useless DB lock messages
+
+* 2.2   Feb 2008
+    - fix "354 go ahead (in reply to RCPT TO command)" bug when responding
+      to non-suspicious clients at the 2nd delivery attempt
+
+* 2.1   Jan 2008
+    - STARTTLS now handled explicitly
+    - logging made atomic, fixes possible log mixes with high concurrencies
+    - example file for a tolerant suspicion ruleset included in the distribution
+
+* 2.0   Jan 2008
+    - greylite can now work as a generic SMTP proxy
+    - command errors in client behaviour analysis
+    - completely new command session control, now able to extract envelope
+      information out of any SMTP command session even with
+      unrecognized/custom commands. SMTP AUTH still passes transparently
+      automatically
+
+* 1.4   Dec 2007
+    - greetdelay and client behaviour analysis
+    - dnsblenv module for combining greylite's suspicion with DNS/RBL blacklists
+    - verified servers are automatically pruned after 25 days of inactivity
+    - suspicion supports inverted rules and more kinds: behaviour, envelope
+
+* 1.3   Dec 2007
+    - suspicion now supports a manifold of rule types: regex, envvar, geoip
+
+* 1.2   Nov 2007
+    - fix possible buffer overflow
+    - fix collision handling on sqlite db
+    - suspicion
+    - earlier detection of "dead clients" (shorter hangs)
+    - new man page
+    - refined logging
+
+* 1.1   Nov 2007
+    - auto-pruning stale pending requests in the database
+    - correctly handle "dead" clients, do not wait indefinitely anymore
+    - insist on database locking up to five times, w/ exponential delays
+
+* 1.0   Nov 2007
+    - first public release

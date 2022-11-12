@@ -1,0 +1,57 @@
+version:    2.3
+website:    http://mij.oltrelinux.com/net/greylite/
+contact:    mij <mij@bitchx.it>
+license:    BSD revised (see http://www.opensource.org/licenses/bsd-license.php)
+
+Refer to the website for any information.
+
+Contents:
+Changes             relevant software changes of each version
+greylite.c          greylite's source file. Compile and install this one
+logmsg.*            logging modules
+greylite.8          greylite's man page. Install in your OS
+greydb.sql          sql commands to initialize the greylite sqlite database
+greylite-verified2cdb.sh    Script to selectively consolidate greylite's
+                    verified addresses into cdb (tcprules)
+cidr2firstlast.c    a trivial tool to convert address blocks from CIDR format
+                    to first-last as used in tcprules. Useful for whitelisting
+                    addresses expressed in SPF blocks (dig +short TXT domain).
+Makefile.gnumake    Makefile for GNUMake -- rename to Makefile to build with
+                    gnumake
+Makefile.bsdmake    Makefile for BSDMake -- rename to Makefile to build with
+                    bsdmake
+dnsblenv.c          source for the dnsblenv module, greylite module for polling
+                    DNS Black Lists
+ucspi2socket.c      source for the ucspi2socket module, greylite module for
+                    interfacing greylite with SMTP servers via TCP
+greylite-patterns.conf.sample           example ruleset for suspicion
+
+
+COMPILING
+
+You can compile two more modules along with greylite: dnsblenv and
+ucspi2socket.
+
+1. If you use BSDmake instead of GNUmake, rename Makefile.bsdmake to Makefile
+first
+
+2. compile and install with
+$ make <arguments> install
+
+Arguments is a list of zero of more of the following:
+WITH_GEOIP=yes
+    To compile greylite with support for GeoIP suspicion rules. The GeoIP
+    API and library must be installed on the system
+
+WITH_UCSPI2SOCKET=yes
+    To compile the "ucspi2socket" module along with greylite.
+
+WITH_DNSBLENV=yes
+    To compile the "dnsblenv" module along with greylite. This module requires
+    the c-ares library on the system.
+
+WITH_CARES14=yes
+    The dnsblenv by default looks for c-ares version 1.5, whose API is
+    incompatible with version 1.4 (still widespread). If c-ares 1.4 is present
+    on the system use this argument.
+

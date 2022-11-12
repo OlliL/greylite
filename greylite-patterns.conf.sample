@@ -1,0 +1,11 @@
+# configuration ruleset for greylite's suspicion
+#
+# if the upstream server implements SPF, enable this
+# pass immediately for the most popular domains protected by SPF "-all"
+#0 e s:@gmx\.(net|de|com)$ s:tiscali\.(co\.uk|de)
+# 15 times for: not waiting the greeting, retrying too frequently
+15 b greetdelay retryinterval
+# 6 times for: who is blacklisted (see the dnsblenv module)
+6 v BLACKLISTED
+# 2 times for: who's not from the "usual" countries
+2 g ! AT BE CH DE ES EU FI FR GB IT MC NO SM VA US
